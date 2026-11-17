@@ -475,371 +475,10 @@ public partial class MainWindow : Window
             return result;
         }
 
-        if (uMsg == WM_SKUA_GRIDVIEW)
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                bool isGrid = wParam.ToInt32() == 1;
-                
-                var topNav = this.FindControl<global::Avalonia.Controls.Control>("TopNavBorder");
-                if (topNav != null)
-                    topNav.IsVisible = !isGrid;
-                
-                var titleBar = this.FindControl<global::Avalonia.Controls.Control>("TitleBar");
-                if (titleBar != null && !_isTitleBarPermanentlyHidden)
-                    titleBar.IsVisible = !isGrid;
-                
-                this.MinWidth = 0;
-                this.MinHeight = 0;
+        if (TryHandleTabMessage(uMsg, wParam, lParam, out IntPtr handledResult))
+            return handledResult;
 
-                try
-                {
-                    _flash.Call("setGameObject", "stage.scaleMode", "showAll");
-                }
-                catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_LOGIN)
-        {
-            Task.Run(() => 
-            {
-                var options = Ioc.Default.GetRequiredService<IScriptOption>();
-                var servers = Ioc.Default.GetRequiredService<IScriptServers>();
-                string targetServer = string.IsNullOrWhiteSpace(options.ReloginServer) ? "Twilly" : options.ReloginServer;
-                servers.Relogin(targetServer);
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == 0x0400 + 448) // WM_SKUA_LOGOUT
-        {
-            Ioc.Default.GetRequiredService<IScriptServers>().Logout();
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_CHANGE_SERVER)
-        {
-            Task.Run(() =>
-            {
-                try
-                {
-                    string tempFile = Path.Combine(Path.GetTempPath(), "skua_global_change_server.txt");
-                    if (!System.IO.File.Exists(tempFile))
-                        return;
-
-                    string targetServer = System.IO.File.ReadAllText(tempFile).Trim();
-                    if (!string.IsNullOrWhiteSpace(targetServer))
-                        Ioc.Default.GetRequiredService<IScriptServers>().Relogin(targetServer);
-                }
-                catch (Exception ex)
-                {
-                    Trace.WriteLine($"Army Control server change failed: {ex.GetType().Name}: {ex.Message}");
-                }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_JUMP_MAP)
-        {
-            Task.Run(() => 
-            {
-                try 
-                {
-                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_jump.txt");
-                    if (System.IO.File.Exists(tempFile))
-                    {
-                        string[] lines = System.IO.File.ReadAllLines(tempFile);
-                        string map = lines.Length > 0 ? lines[0].Trim() : "";
-                        string cell = lines.Length > 1 && !string.IsNullOrWhiteSpace(lines[1]) ? lines[1].Trim() : "Enter";
-                        string pad = lines.Length > 2 && !string.IsNullOrWhiteSpace(lines[2]) ? lines[2].Trim() : "Spawn";
-                        
-                        if (cell.Contains(','))
-                        {
-                            var cellParts = cell.Split(',');
-                            cell = cellParts[0].Trim();
-                            if (cellParts.Length > 1) pad = cellParts[1].Trim();
-                        }
-                        
-                        var mapService = Ioc.Default.GetRequiredService<IScriptMap>();
-                        if (string.IsNullOrWhiteSpace(map) || mapService.Name.Equals(map, StringComparison.OrdinalIgnoreCase))
-                            mapService.Jump(cell, pad, false);
-                        else
-                            mapService.Join(map, cell, pad, true, false);
-                    }
-                } catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_JUMP_HOUSE)
-        {
-            Task.Run(() =>
-            {
-                try
-                {
-                    // Same packet CoreBots uses to join the player's own house.
-                    var player = Ioc.Default.GetRequiredService<IScriptPlayer>();
-                    if (player.LoggedIn && !string.IsNullOrWhiteSpace(player.Username))
-                        Ioc.Default.GetRequiredService<IScriptSend>().Packet($"%xt%zm%house%1%{player.Username}%");
-                }
-                catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_JUMP_PLAYER)
-        {
-            Task.Run(() => 
-            {
-                try 
-                {
-                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_jump_player.txt");
-                    if (System.IO.File.Exists(tempFile))
-                    {
-                        string targetPlayer = System.IO.File.ReadAllText(tempFile)?.Trim() ?? "";
-                        if (!string.IsNullOrWhiteSpace(targetPlayer))
-                            Ioc.Default.GetRequiredService<IScriptPlayer>().Goto(targetPlayer);
-                    }
-                } catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_LOAD_SCRIPT)
-        {
-            Task.Run(() => 
-            {
-                try 
-                {
-                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_script.txt");
-                    if (System.IO.File.Exists(tempFile))
-                    {
-                        string targetScript = System.IO.File.ReadAllText(tempFile);
-                        if (!string.IsNullOrWhiteSpace(targetScript) && System.IO.File.Exists(targetScript))
-                        {
-                            var sm = Ioc.Default.GetRequiredService<Skua.App.Avalonia.ViewModels.ScriptLoaderViewModel>();
-                            Dispatcher.UIThread.Post(() =>
-                            {
-                                if (sm.LoadScriptCommand.CanExecute(targetScript))
-                                    sm.LoadScriptCommand.Execute(targetScript);
-                            });
-                        }
-                    }
-                } catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_SET_OPTION)
-        {
-            int optionId = wParam.ToInt32();
-            bool value = lParam.ToInt32() == 1;
-            var options = Ioc.Default.GetRequiredService<IScriptOption>();
-            switch (optionId)
-            {
-                case 1: options.LagKiller = value; break;
-                case 2: options.HeadlessMode = value; break;
-                case 3: options.HidePlayers = value; break;
-                case 4: options.DisableFX = value; break;
-                case 5: options.InfiniteRange = value; break;
-                case 6: options.Magnetise = value; break;
-                case 7: options.SkipCutscenes = value; break;
-                case 8: options.UseFunctionBasedSkills = value; break;
-                case 9: options.StreamerMode = value; break;
-                case 10: options.AggroMonsters = value; break;
-                case 99:
-                    var sm = Ioc.Default.GetRequiredService<Skua.App.Avalonia.ViewModels.ScriptLoaderViewModel>();
-                    var scheduler = Ioc.Default.GetRequiredService<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel>();
-                    if (value)
-                    {
-                        if (!sm.ScriptManager.ScriptRunning)
-                        {
-                            if (sm.ToggleScriptCommand.CanExecute(null))
-                                sm.ToggleScriptCommand.Execute(null);
-                        }
-                    }
-                    else
-                    {
-                        if (scheduler.IsRunningQueue && scheduler.StopQueueCommand.CanExecute(null))
-                            scheduler.StopQueueCommand.Execute(null);
-                        else if (sm.ScriptManager.ScriptRunning && sm.ToggleScriptCommand.CanExecute(null))
-                            sm.ToggleScriptCommand.Execute(null);
-                    }
-                    break;
-            }
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_ARMY_SCHEDULER)
-        {
-            Task.Run(() => 
-            {
-                try 
-                {
-                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_playlist.json");
-                    if (System.IO.File.Exists(tempFile))
-                    {
-                        var data = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel.SavedScriptItem>>(System.IO.File.ReadAllText(tempFile));
-                        var scheduler = Ioc.Default.GetRequiredService<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel>();
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            scheduler.ScriptQueue.Clear();
-                            if (data != null)
-                            {
-                                foreach (var item in data)
-                                {
-                                    if (System.IO.File.Exists(item.Path))
-                                    {
-                                        var vm = new Skua.Shared.Avalonia.ViewModels.ScriptItemViewModel(item.Path) { Id = item.Id };
-                                        if (!string.IsNullOrEmpty(item.Name)) vm.Name = item.Name;
-                                        scheduler.ScriptQueue.Add(vm);
-                                    }
-                                }
-                            }
-                            if (scheduler.ScriptQueue.Count > 0 && !scheduler.IsRunningQueue)
-                            {
-                                if (scheduler.StartQueueCommand.CanExecute(null))
-                                    scheduler.StartQueueCommand.Execute(null);
-                            }
-                        });
-                    }
-                } catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_ARMY_SCHEDULER_STOP)
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                var scheduler = Ioc.Default.GetRequiredService<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel>();
-                if (scheduler.StopQueueCommand.CanExecute(null))
-                    scheduler.StopQueueCommand.Execute(null);
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_CHECK_LOGIN)
-        {
-            var bot = Ioc.Default.GetRequiredService<IScriptInterface>();
-            return new IntPtr(bot.Player.LoggedIn ? 1 : 0);
-        }
-        else if (uMsg == 0x0400 + 458) // WM_SKUA_ACCEPT_QUEST
-        {
-            Task.Run(() => 
-            {
-                try 
-                {
-                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_accept_quest.txt");
-                    if (System.IO.File.Exists(tempFile))
-                    {
-                        string[] lines = System.IO.File.ReadAllLines(tempFile);
-                        string questIdRaw = lines.Length > 0 ? lines[0].Trim() : "";
-                        string rewardIdRaw = lines.Length > 1 ? lines[1].Trim() : "-1";
-                        int rewardId = int.TryParse(rewardIdRaw, out int rId) ? rId : -1;
-                        if (int.TryParse(questIdRaw, out int questId) && questId > 0)
-                        {
-                            var quest = Ioc.Default.GetRequiredService<IScriptQuest>();
-                            quest.RegisterQuests((questId, rewardId));
-                        }
-                    }
-                } catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_AUTO_ATTACK)
-        {
-            bool start = wParam.ToInt32() == 1;
-            Dispatcher.UIThread.Post(() =>
-            {
-                var autoVm = Ioc.Default.GetRequiredService<AutoViewModel>();
-                if (start)
-                    StrongReferenceMessenger.Default.Send<StartAutoAttackMessage>();
-                else
-                    StrongReferenceMessenger.Default.Send<StopAutoMessage>();
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == 0x0400 + 452) // WM_SKUA_THROTTLE
-        {
-            bool throttle = wParam.ToInt32() == 1;
-            var options = Ioc.Default.GetRequiredService<IScriptOption>();
-            if (!options.HeadlessMode)
-            {
-                var bot = Ioc.Default.GetRequiredService<IScriptInterface>();
-                try
-                {
-                    if (throttle)
-                    {
-                        if (_preThrottleFPS <= 0)
-                        {
-                            int currentFPS = bot.Flash?.GetGameObject<int>("stage.frameRate") ?? -1;
-                            if (currentFPS > 2)
-                                _preThrottleFPS = currentFPS;
-                            string? currentQuality = bot.Flash?.GetGameObject<string>("stage.quality");
-                            if (!string.IsNullOrEmpty(currentQuality))
-                                _preThrottleQuality = currentQuality;
-                        }
-
-                        bot.Flash?.SetGameObject("stage.frameRate", 2);
-                        bot.Flash?.SetGameObject("stage.quality", "LOW");
-                        Skua.Core.Utils.MemoryUtils.TrimWorkingSet();
-                    }
-                    else
-                    {
-                        int currentFPS = bot.Flash?.GetGameObject<int>("stage.frameRate") ?? -1;
-                        int targetFPS = _preThrottleFPS > 2 ? _preThrottleFPS : (currentFPS > 2 ? currentFPS : options.SetFPS);
-                        string? targetQuality = _preThrottleQuality;
-                        
-                        _preThrottleFPS = -1;
-                        _preThrottleQuality = null;
-
-                        if (targetFPS > 0)
-                            bot.Flash?.SetGameObject("stage.frameRate", targetFPS);
-                        if (!string.IsNullOrEmpty(targetQuality))
-                            bot.Flash?.SetGameObject("stage.quality", targetQuality);
-                    }
-                }
-                catch { }
-            }
-            return IntPtr.Zero;
-        }
-        else if (uMsg == WM_SKUA_OPEN_BANK)
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                try
-                {
-                    Ioc.Default.GetRequiredService<IScriptBank>().Open();
-                }
-                catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == HotKeys.WM_SKUA_EXECUTE_HOTKEY)
-        {
-            int actionId = wParam.ToInt32();
-            string? actionName = HotKeys.GetActionNameById(actionId);
-            if (!string.IsNullOrEmpty(actionName))
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    try
-                    {
-                        if (actionName == "OpenBank")
-                            Ioc.Default.GetRequiredService<IScriptBank>().Open();
-                        else
-                            HotKeys.ExecuteHotkeyActionDirect(actionName);
-                    }
-                    catch { }
-                });
-            }
-            return IntPtr.Zero;
-        }
-        else if (uMsg == HotKeys.WM_SKUA_RELOAD_HOTKEYS)
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                try
-                {
-                    Ioc.Default.GetRequiredService<IHotKeyService>().Reload();
-                }
-                catch { }
-            });
-            return IntPtr.Zero;
-        }
-        else if (uMsg == 0x004A /* WM_COPYDATA */)
+        if (uMsg == 0x004A /* WM_COPYDATA */)
         {
             try
             {
@@ -851,17 +490,7 @@ public partial class MainWindow : Window
                         string? actionName = Marshal.PtrToStringUni(cds.lpData);
                         if (!string.IsNullOrEmpty(actionName))
                         {
-                            Dispatcher.UIThread.Post(() =>
-                            {
-                                try
-                                {
-                                    if (actionName == "OpenBank")
-                                        Ioc.Default.GetRequiredService<IScriptBank>().Open();
-                                    else
-                                        HotKeys.ExecuteHotkeyActionDirect(actionName);
-                                }
-                                catch { }
-                            });
+                            ExecuteTabAction(actionName);
                             return (IntPtr)1;
                         }
                     }
@@ -903,4 +532,420 @@ public partial class MainWindow : Window
         }
     }
 #endif
+
+    /// <summary>
+    /// The tab host's messages (WM_SKUA_*). On Windows they come as window messages; elsewhere through
+    /// <see cref="TabChannel"/>. Runs on the UI thread. Returns false for a message that isn't one of them.
+    /// </summary>
+    private bool TryHandleTabMessage(uint uMsg, IntPtr wParam, IntPtr lParam, out IntPtr result)
+    {
+        result = IntPtr.Zero;
+        if (uMsg == WM_SKUA_GRIDVIEW)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                bool isGrid = wParam.ToInt32() == 1;
+            
+                var topNav = this.FindControl<global::Avalonia.Controls.Control>("TopNavBorder");
+                if (topNav != null)
+                    topNav.IsVisible = !isGrid;
+            
+                var titleBar = this.FindControl<global::Avalonia.Controls.Control>("TitleBar");
+                if (titleBar != null && !_isTitleBarPermanentlyHidden)
+                    titleBar.IsVisible = !isGrid;
+            
+                this.MinWidth = 0;
+                this.MinHeight = 0;
+
+                try
+                {
+                    _flash.Call("setGameObject", "stage.scaleMode", "showAll");
+                }
+                catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_LOGIN)
+        {
+            Task.Run(() => 
+            {
+                var options = Ioc.Default.GetRequiredService<IScriptOption>();
+                var servers = Ioc.Default.GetRequiredService<IScriptServers>();
+                string targetServer = string.IsNullOrWhiteSpace(options.ReloginServer) ? "Twilly" : options.ReloginServer;
+                servers.Relogin(targetServer);
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == 0x0400 + 448) // WM_SKUA_LOGOUT
+        {
+            Ioc.Default.GetRequiredService<IScriptServers>().Logout();
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_CHANGE_SERVER)
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    string tempFile = Path.Combine(Path.GetTempPath(), "skua_global_change_server.txt");
+                    if (!System.IO.File.Exists(tempFile))
+                        return;
+
+                    string targetServer = System.IO.File.ReadAllText(tempFile).Trim();
+                    if (!string.IsNullOrWhiteSpace(targetServer))
+                        Ioc.Default.GetRequiredService<IScriptServers>().Relogin(targetServer);
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine($"Army Control server change failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_JUMP_MAP)
+        {
+            Task.Run(() => 
+            {
+                try 
+                {
+                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_jump.txt");
+                    if (System.IO.File.Exists(tempFile))
+                    {
+                        string[] lines = System.IO.File.ReadAllLines(tempFile);
+                        string map = lines.Length > 0 ? lines[0].Trim() : "";
+                        string cell = lines.Length > 1 && !string.IsNullOrWhiteSpace(lines[1]) ? lines[1].Trim() : "Enter";
+                        string pad = lines.Length > 2 && !string.IsNullOrWhiteSpace(lines[2]) ? lines[2].Trim() : "Spawn";
+                    
+                        if (cell.Contains(','))
+                        {
+                            var cellParts = cell.Split(',');
+                            cell = cellParts[0].Trim();
+                            if (cellParts.Length > 1) pad = cellParts[1].Trim();
+                        }
+                    
+                        var mapService = Ioc.Default.GetRequiredService<IScriptMap>();
+                        if (string.IsNullOrWhiteSpace(map) || mapService.Name.Equals(map, StringComparison.OrdinalIgnoreCase))
+                            mapService.Jump(cell, pad, false);
+                        else
+                            mapService.Join(map, cell, pad, true, false);
+                    }
+                } catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_JUMP_HOUSE)
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Same packet CoreBots uses to join the player's own house.
+                    var player = Ioc.Default.GetRequiredService<IScriptPlayer>();
+                    if (player.LoggedIn && !string.IsNullOrWhiteSpace(player.Username))
+                        Ioc.Default.GetRequiredService<IScriptSend>().Packet($"%xt%zm%house%1%{player.Username}%");
+                }
+                catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_JUMP_PLAYER)
+        {
+            Task.Run(() => 
+            {
+                try 
+                {
+                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_jump_player.txt");
+                    if (System.IO.File.Exists(tempFile))
+                    {
+                        string targetPlayer = System.IO.File.ReadAllText(tempFile)?.Trim() ?? "";
+                        if (!string.IsNullOrWhiteSpace(targetPlayer))
+                            Ioc.Default.GetRequiredService<IScriptPlayer>().Goto(targetPlayer);
+                    }
+                } catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_LOAD_SCRIPT)
+        {
+            Task.Run(() => 
+            {
+                try 
+                {
+                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_script.txt");
+                    if (System.IO.File.Exists(tempFile))
+                    {
+                        string targetScript = System.IO.File.ReadAllText(tempFile);
+                        if (!string.IsNullOrWhiteSpace(targetScript) && System.IO.File.Exists(targetScript))
+                        {
+                            var sm = Ioc.Default.GetRequiredService<Skua.App.Avalonia.ViewModels.ScriptLoaderViewModel>();
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                if (sm.LoadScriptCommand.CanExecute(targetScript))
+                                    sm.LoadScriptCommand.Execute(targetScript);
+                            });
+                        }
+                    }
+                } catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_SET_OPTION)
+        {
+            int optionId = wParam.ToInt32();
+            bool value = lParam.ToInt32() == 1;
+            var options = Ioc.Default.GetRequiredService<IScriptOption>();
+            switch (optionId)
+            {
+                case 1: options.LagKiller = value; break;
+                case 2: options.HeadlessMode = value; break;
+                case 3: options.HidePlayers = value; break;
+                case 4: options.DisableFX = value; break;
+                case 5: options.InfiniteRange = value; break;
+                case 6: options.Magnetise = value; break;
+                case 7: options.SkipCutscenes = value; break;
+                case 8: options.UseFunctionBasedSkills = value; break;
+                case 9: options.StreamerMode = value; break;
+                case 10: options.AggroMonsters = value; break;
+                case 99:
+                    var sm = Ioc.Default.GetRequiredService<Skua.App.Avalonia.ViewModels.ScriptLoaderViewModel>();
+                    var scheduler = Ioc.Default.GetRequiredService<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel>();
+                    if (value)
+                    {
+                        if (!sm.ScriptManager.ScriptRunning)
+                        {
+                            if (sm.ToggleScriptCommand.CanExecute(null))
+                                sm.ToggleScriptCommand.Execute(null);
+                        }
+                    }
+                    else
+                    {
+                        if (scheduler.IsRunningQueue && scheduler.StopQueueCommand.CanExecute(null))
+                            scheduler.StopQueueCommand.Execute(null);
+                        else if (sm.ScriptManager.ScriptRunning && sm.ToggleScriptCommand.CanExecute(null))
+                            sm.ToggleScriptCommand.Execute(null);
+                    }
+                    break;
+            }
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_ARMY_SCHEDULER)
+        {
+            Task.Run(() => 
+            {
+                try 
+                {
+                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_playlist.json");
+                    if (System.IO.File.Exists(tempFile))
+                    {
+                        var data = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel.SavedScriptItem>>(System.IO.File.ReadAllText(tempFile));
+                        var scheduler = Ioc.Default.GetRequiredService<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel>();
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            scheduler.ScriptQueue.Clear();
+                            if (data != null)
+                            {
+                                foreach (var item in data)
+                                {
+                                    if (System.IO.File.Exists(item.Path))
+                                    {
+                                        var vm = new Skua.Shared.Avalonia.ViewModels.ScriptItemViewModel(item.Path) { Id = item.Id };
+                                        if (!string.IsNullOrEmpty(item.Name)) vm.Name = item.Name;
+                                        scheduler.ScriptQueue.Add(vm);
+                                    }
+                                }
+                            }
+                            if (scheduler.ScriptQueue.Count > 0 && !scheduler.IsRunningQueue)
+                            {
+                                if (scheduler.StartQueueCommand.CanExecute(null))
+                                    scheduler.StartQueueCommand.Execute(null);
+                            }
+                        });
+                    }
+                } catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_ARMY_SCHEDULER_STOP)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                var scheduler = Ioc.Default.GetRequiredService<Skua.Shared.Avalonia.ViewModels.ScriptSchedulerViewModel>();
+                if (scheduler.StopQueueCommand.CanExecute(null))
+                    scheduler.StopQueueCommand.Execute(null);
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_CHECK_LOGIN)
+        {
+            var bot = Ioc.Default.GetRequiredService<IScriptInterface>();
+            { result = new IntPtr(bot.Player.LoggedIn ? 1 : 0); return true; }
+        }
+        else if (uMsg == 0x0400 + 458) // WM_SKUA_ACCEPT_QUEST
+        {
+            Task.Run(() => 
+            {
+                try 
+                {
+                    string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "skua_global_accept_quest.txt");
+                    if (System.IO.File.Exists(tempFile))
+                    {
+                        string[] lines = System.IO.File.ReadAllLines(tempFile);
+                        string questIdRaw = lines.Length > 0 ? lines[0].Trim() : "";
+                        string rewardIdRaw = lines.Length > 1 ? lines[1].Trim() : "-1";
+                        int rewardId = int.TryParse(rewardIdRaw, out int rId) ? rId : -1;
+                        if (int.TryParse(questIdRaw, out int questId) && questId > 0)
+                        {
+                            var quest = Ioc.Default.GetRequiredService<IScriptQuest>();
+                            quest.RegisterQuests((questId, rewardId));
+                        }
+                    }
+                } catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_AUTO_ATTACK)
+        {
+            bool start = wParam.ToInt32() == 1;
+            Dispatcher.UIThread.Post(() =>
+            {
+                var autoVm = Ioc.Default.GetRequiredService<AutoViewModel>();
+                if (start)
+                    StrongReferenceMessenger.Default.Send<StartAutoAttackMessage>();
+                else
+                    StrongReferenceMessenger.Default.Send<StopAutoMessage>();
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == 0x0400 + 452) // WM_SKUA_THROTTLE
+        {
+            bool throttle = wParam.ToInt32() == 1;
+            var options = Ioc.Default.GetRequiredService<IScriptOption>();
+            if (!options.HeadlessMode)
+            {
+                var bot = Ioc.Default.GetRequiredService<IScriptInterface>();
+                try
+                {
+                    if (throttle)
+                    {
+                        if (_preThrottleFPS <= 0)
+                        {
+                            int currentFPS = bot.Flash?.GetGameObject<int>("stage.frameRate") ?? -1;
+                            if (currentFPS > 2)
+                                _preThrottleFPS = currentFPS;
+                            string? currentQuality = bot.Flash?.GetGameObject<string>("stage.quality");
+                            if (!string.IsNullOrEmpty(currentQuality))
+                                _preThrottleQuality = currentQuality;
+                        }
+
+                        bot.Flash?.SetGameObject("stage.frameRate", 2);
+                        bot.Flash?.SetGameObject("stage.quality", "LOW");
+                        Skua.Core.Utils.MemoryUtils.TrimWorkingSet();
+                    }
+                    else
+                    {
+                        int currentFPS = bot.Flash?.GetGameObject<int>("stage.frameRate") ?? -1;
+                        int targetFPS = _preThrottleFPS > 2 ? _preThrottleFPS : (currentFPS > 2 ? currentFPS : options.SetFPS);
+                        string? targetQuality = _preThrottleQuality;
+                    
+                        _preThrottleFPS = -1;
+                        _preThrottleQuality = null;
+
+                        if (targetFPS > 0)
+                            bot.Flash?.SetGameObject("stage.frameRate", targetFPS);
+                        if (!string.IsNullOrEmpty(targetQuality))
+                            bot.Flash?.SetGameObject("stage.quality", targetQuality);
+                    }
+                }
+                catch { }
+            }
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == WM_SKUA_OPEN_BANK)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    Ioc.Default.GetRequiredService<IScriptBank>().Open();
+                }
+                catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == HotKeys.WM_SKUA_EXECUTE_HOTKEY)
+        {
+            int actionId = wParam.ToInt32();
+            string? actionName = HotKeys.GetActionNameById(actionId);
+            if (!string.IsNullOrEmpty(actionName))
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try
+                    {
+                        if (actionName == "OpenBank")
+                            Ioc.Default.GetRequiredService<IScriptBank>().Open();
+                        else
+                            HotKeys.ExecuteHotkeyActionDirect(actionName);
+                    }
+                    catch { }
+                });
+            }
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == HotKeys.WM_SKUA_RELOAD_HOTKEYS)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    Ioc.Default.GetRequiredService<IHotKeyService>().Reload();
+                }
+                catch { }
+            });
+            { result = IntPtr.Zero; return true; }
+        }
+        else if (uMsg == TabChannel.WM_SKUA_SET_HOST)
+        {
+            // Moved to another host window (a tab dragged between windows).
+            HotKeys.HostHwnd = wParam;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Off Windows, as a tab of a host: answers the host's messages through <see cref="TabChannel"/>, and takes the
+    /// keyboard when clicked (the window manager only gives it to the host's top-level window).
+    /// </summary>
+    public void AttachToTabHost(IntPtr ownWindow)
+    {
+        TabChannel.StartClientServer(
+            (msg, wParam, lParam) => Dispatcher.UIThread.InvokeAsync(() =>
+                TryHandleTabMessage((uint)msg, wParam, lParam, out IntPtr result) ? result : IntPtr.Zero).GetTask(),
+            ExecuteTabAction);
+
+        if (ownWindow != IntPtr.Zero)
+        {
+            AddHandler(global::Avalonia.Input.InputElement.PointerPressedEvent,
+                (_, _) => Controls.X11Embed.Focus(ownWindow),
+                global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        }
+    }
+
+    /// <summary>Runs a hotkey action the host forwarded by name.</summary>
+    private static void ExecuteTabAction(string actionName)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                if (actionName == "OpenBank")
+                    Ioc.Default.GetRequiredService<IScriptBank>().Open();
+                else
+                    HotKeys.ExecuteHotkeyActionDirect(actionName);
+            }
+            catch { }
+        });
+    }
 }

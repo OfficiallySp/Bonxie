@@ -157,6 +157,7 @@ public partial class App : Application
             }
             else HostInstanceId = null;
         }
+        Skua.Core.AppStartup.TabChannel.HostPipeName = HostPipeName;
         _parentHostProcessId = hasEmbedFlag ? hostPid : 0;
         if (_parentHostProcessId > 0)
             Skua.Shared.Avalonia.Controls.Shell.WindowTitleBar.ArtworkPathChanged += OnTitleBarArtworkPathChanged;
@@ -211,21 +212,36 @@ public partial class App : Application
                 desktop.MainWindow = mainChild;
                 mainChild.HideTitleBar();
 
-                mainChild.Opened += (s, ev) => 
+                if (OperatingSystem.IsWindows())
                 {
-                    IntPtr childHwnd = mainChild.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-                    if (childHwnd != IntPtr.Zero)
+                    mainChild.Opened += (s, ev) =>
                     {
-                        int exStyle = GetWindowLong_Native(childHwnd, -20);
-                        SetWindowLong_Native(childHwnd, -20, exStyle | 0x00000080); // WS_EX_TOOLWINDOW
-                        SetWindowPos_Native(childHwnd, IntPtr.Zero, -32000, -32000, 800, 600, 0x0040 | 0x0010 | 0x0004); // SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOZORDER
-
-                        if (embedHwnd != 0)
+                        IntPtr childHwnd = mainChild.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+                        if (childHwnd != IntPtr.Zero)
                         {
-                            PostMessage_Native(new IntPtr(embedHwnd), 0x0400 + 440 /* WM_SKUA_CHILD_READY */, childHwnd, new IntPtr(Environment.ProcessId));
+                            int exStyle = GetWindowLong_Native(childHwnd, -20);
+                            SetWindowLong_Native(childHwnd, -20, exStyle | 0x00000080); // WS_EX_TOOLWINDOW
+                            SetWindowPos_Native(childHwnd, IntPtr.Zero, -32000, -32000, 800, 600, 0x0040 | 0x0010 | 0x0004); // SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOZORDER
+
+                            if (embedHwnd != 0)
+                            {
+                                PostMessage_Native(new IntPtr(embedHwnd), 0x0400 + 440 /* WM_SKUA_CHILD_READY */, childHwnd, new IntPtr(Environment.ProcessId));
+                            }
                         }
-                    }
-                };
+                    };
+                }
+                else
+                {
+                    // X11: the window goes into the host's hidden parking window before it is ever mapped, so the
+                    // window manager never treats it as a window of its own; the host then shows it in its tab.
+                    mainChild.Position = new global::Avalonia.PixelPoint(0, 0);
+                    IntPtr childXid = mainChild.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+                    if (childXid != IntPtr.Zero && embedHwnd != 0)
+                        Controls.X11Embed.Reparent(childXid, new IntPtr(embedHwnd));
+                    mainChild.AttachToTabHost(childXid);
+                    mainChild.Opened += (s, ev) =>
+                        Skua.Core.AppStartup.TabChannel.PostToHost(Skua.Core.AppStartup.TabChannel.WM_SKUA_CHILD_READY, childXid, Environment.ProcessId);
+                }
 
                 if (hostPid != 0)
                 {
@@ -249,10 +265,10 @@ public partial class App : Application
                     });
                 }
             }
-            else if (!OperatingSystem.IsWindows())
+            else if (!OperatingSystem.IsWindows() && !(OperatingSystem.IsLinux() && Controls.X11Embed.IsAvailable))
             {
-                // The tabbed host embeds each account's window with Win32 calls. Elsewhere every launch is its own
-                // client window, one account each (like the original Skua).
+                // The tabbed host embeds each account's window with Win32 calls on Windows and X11 reparenting on
+                // Linux. Elsewhere (no X11) every launch is its own client window, one account each.
                 desktop.MainWindow = new Views.MainWindow { WindowStartupLocation = global::Avalonia.Controls.WindowStartupLocation.CenterScreen };
             }
             else
@@ -585,7 +601,7 @@ public partial class App : Application
     /// </summary>
     private void OnTitleBarArtworkPathChanged(string? path)
     {
-        if (_parentHostProcessId <= 0 || !OperatingSystem.IsWindows())
+        if (_parentHostProcessId <= 0)
             return;
 
         string encodedPath = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(path ?? string.Empty));
@@ -617,7 +633,7 @@ public partial class App : Application
     /// </summary>
     private void QueueHostThemeSync(AvaloniaThemeService themeService)
     {
-        if (_parentHostProcessId <= 0 || !OperatingSystem.IsWindows())
+        if (_parentHostProcessId <= 0)
             return;
 
         _pendingHostThemeSync = themeService;

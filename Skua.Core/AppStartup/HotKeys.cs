@@ -33,6 +33,12 @@ public class HotKeys
     public static IntPtr HostHwnd { get; set; } = IntPtr.Zero;
     public static Func<uint, IntPtr>? GetChildHwndForPid { get; set; }
 
+    /// <summary>Host process, off Windows: the client of the tab a hotkey is for (the focused or selected tab), or 0.</summary>
+    public static Func<int>? ActiveClientPid { get; set; }
+
+    /// <summary>Host process, off Windows: posts a message to every tab's client.</summary>
+    public static Action<int, nint, nint>? BroadcastToClients { get; set; }
+
     private static readonly List<string> _actionList = new()
     {
         "ToggleScript",
@@ -272,6 +278,16 @@ public class HotKeys
 
     public static void BroadcastReloadHotkeys()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            // A client tells its host, which reloads and tells every tab.
+            if (IsHostProcess)
+                BroadcastToClients?.Invoke(WM_SKUA_RELOAD_HOTKEYS, 0, 0);
+            else
+                TabChannel.PostToHost(WM_SKUA_RELOAD_HOTKEYS);
+            return;
+        }
+
         try
         {
             if (HostHwnd != IntPtr.Zero)
@@ -385,6 +401,22 @@ public class HotKeys
                 Marshal.FreeHGlobal(cds.lpData);
                 return;
             }
+        }
+        else if (IsHostProcess && ActiveClientPid?.Invoke() is int clientPid && clientPid > 0)
+        {
+            // Off Windows the tab's client is reached through its pipe; same messages.
+            if (actionName == "OpenBank")
+            {
+                TabChannel.Post(IntPtr.Zero, clientPid, WM_SKUA_OPEN_BANK);
+                return;
+            }
+
+            int actionId = GetActionId(actionName);
+            if (actionId >= 0)
+                TabChannel.Post(IntPtr.Zero, clientPid, WM_SKUA_EXECUTE_HOTKEY, actionId);
+            else
+                TabChannel.PostAction(clientPid, actionName);
+            return;
         }
 
         localExecute();
@@ -544,7 +576,7 @@ public class HotKeys
         }
         else if (HostHwnd != IntPtr.Zero)
         {
-            PostMessage(HostHwnd, WM_SKUA_LOAD_SCRIPT_ALL, IntPtr.Zero, IntPtr.Zero);
+            TabChannel.PostToHost(WM_SKUA_LOAD_SCRIPT_ALL);
         }
         else
         {
@@ -574,10 +606,16 @@ public class HotKeys
 
     private static void BroadcastArmyMessage(uint msg, int wParam, int lParam)
     {
-        // Army clients are other Windows processes reached through user32. Off Windows there are none: the Army
-        // toggles still flip the option here (their argument does that), the rest do nothing.
+        // Off Windows the army is the host's tabs, reached through their pipes: the host sends to every tab, a
+        // client asks its host to. A client without a host (no tabs) just has the option flipped by the argument.
         if (!OperatingSystem.IsWindows())
+        {
+            if (IsHostProcess)
+                BroadcastToClients?.Invoke((int)msg, wParam, lParam);
+            else if (HostHwnd != IntPtr.Zero)
+                TabChannel.RelayToAllClients((int)msg, wParam, lParam);
             return;
+        }
 
         var skuaProcesses = System.Diagnostics.Process.GetProcessesByName(System.Diagnostics.Process.GetCurrentProcess().ProcessName);
         var pids = skuaProcesses.Select(p => p.Id).ToHashSet();
