@@ -390,15 +390,48 @@ public partial class TabbedHostWindow
             ? new PixelPoint(point.X - (int)(80 * scaling), point.Y - (int)(46 * scaling))
             : new PixelPoint(Position.X + (int)(40 * scaling), Position.Y + (int)(40 * scaling));
 
+        // Keep the title bar on the screen the tab was dropped on.
+        PixelRect? area = Screens.ScreenFromPoint(screenPoint ?? Position)?.WorkingArea;
+        if (area is { } workArea)
+        {
+            position = new PixelPoint(
+                Math.Clamp(position.X, workArea.X, Math.Max(workArea.X, workArea.Right - (int)(240 * scaling))),
+                Math.Clamp(position.Y, workArea.Y, Math.Max(workArea.Y, workArea.Bottom - (int)(120 * scaling))));
+        }
+
         TabbedHostWindow window = new(Array.Empty<string>(), startEmpty: true)
         {
             WindowStartupLocation = WindowStartupLocation.Manual,
             Width = Bounds.Width > 100 ? Bounds.Width : Width,
             Height = Bounds.Height > 100 ? Bounds.Height : Height,
             Position = position,
-            _pendingAdoption = info
+            _pendingAdoption = info,
+            _requestedPosition = position
         };
         window.Show();
+    }
+
+    /// <summary>Where a window opened for a dropped tab goes.</summary>
+    private PixelPoint? _requestedPosition;
+
+    /// <summary>
+    /// Some X11 window managers place a new window by their own rules whatever position it asks for; once it is
+    /// open they do move it, so a window opened for a dropped tab moves to the drop point then.
+    /// </summary>
+    private void ApplyRequestedPosition()
+    {
+        if (_requestedPosition is not { } position)
+            return;
+        _requestedPosition = null;
+
+        // Position still reads what was asked before the window opened, so it is set again rather than compared;
+        // and once more after the window manager has placed the window.
+        Position = position;
+        DispatcherTimer.RunOnce(() =>
+        {
+            if (!_isClosing && Position != position)
+                Position = position;
+        }, TimeSpan.FromMilliseconds(150));
     }
 
     private void ReorderTab(TabItem tab, int index)
@@ -535,7 +568,8 @@ public partial class TabbedHostWindow
         _dragSource = source;
         _dragStart = e.GetPosition(this);
         _dragActive = false;
-        e.Pointer.Capture(source);
+        // No capture yet: Avalonia's own capture of the pressed element is what turns a second click on the title
+        // into DoubleTapped (rename). The drag captures the pointer once it really starts.
     }
 
     private void OnTabDragMoved(TabInfo info, Control source, PointerEventArgs e)
@@ -549,6 +583,8 @@ public partial class TabbedHostWindow
             if (Math.Abs(position.X - _dragStart.X) < TabDragThreshold && Math.Abs(position.Y - _dragStart.Y) < TabDragThreshold)
                 return;
             _dragActive = true;
+            // The tab's header keeps getting the pointer wherever it goes, outside this window too.
+            e.Pointer.Capture(source);
             source.Cursor = new Cursor(StandardCursorType.DragMove);
         }
 
@@ -587,9 +623,10 @@ public partial class TabbedHostWindow
         }
     }
 
-    private void OnTabDragCaptureLost(TabInfo info)
+    private void OnTabDragCaptureLost(TabInfo info, PointerCaptureLostEventArgs e)
     {
-        if (_dragInfo == info)
+        // Taking the capture for the drag takes it from the pressed element; only losing it from the header ends the drag.
+        if (_dragInfo == info && e.Pointer.Captured != _dragSource)
             EndTabDrag(cancelled: true);
     }
 

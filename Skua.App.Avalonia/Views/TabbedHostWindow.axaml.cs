@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
 using Material.Icons;
@@ -568,6 +569,7 @@ public partial class TabbedHostWindow : Window
             {
                 // A tab dragged out of another window: take it over now that this window has its handle.
                 _pendingAdoption = null;
+                ApplyRequestedPosition();
                 MoveTab(adoption, this, 0);
             }
             else if (!_startEmpty)
@@ -3050,7 +3052,6 @@ public partial class TabbedHostWindow : Window
                 return;
 
             InstancesTabControl.SelectedItem = newTab;
-            BeginTabDragCandidate(info, headerPanel, ev);
 
             if (_isGridViewEnabled)
             {
@@ -3076,13 +3077,23 @@ public partial class TabbedHostWindow : Window
             }
         };
 
-        headerPanel.PointerMoved += (s, ev) =>
+        // The drag starts anywhere on the tab (its padding too), not on the close button or the rename box. TabItem
+        // handles its presses itself (selection), hence handledEventsToo.
+        newTab.AddHandler(InputElement.PointerPressedEvent, (s, ev) =>
+        {
+            if (!ev.GetCurrentPoint(newTab).Properties.IsLeftButtonPressed || editTitle.IsVisible)
+                return;
+            if (ev.Source is Visual pressed && (closeBtn == pressed || closeBtn.IsVisualAncestorOf(pressed)))
+                return;
+            BeginTabDragCandidate(info, newTab, ev);
+        }, RoutingStrategies.Bubble, handledEventsToo: true);
+        newTab.AddHandler(InputElement.PointerMovedEvent, (s, ev) =>
         {
             if (!editTitle.IsVisible)
-                OnTabDragMoved(info, headerPanel, ev);
-        };
-        headerPanel.PointerReleased += (s, ev) => OnTabDragReleased(info, ev);
-        headerPanel.PointerCaptureLost += (s, ev) => OnTabDragCaptureLost(info);
+                OnTabDragMoved(info, newTab, ev);
+        }, RoutingStrategies.Bubble, handledEventsToo: true);
+        newTab.AddHandler(InputElement.PointerReleasedEvent, (s, ev) => OnTabDragReleased(info, ev), RoutingStrategies.Bubble, handledEventsToo: true);
+        newTab.AddHandler(InputElement.PointerCaptureLostEvent, (s, ev) => OnTabDragCaptureLost(info, ev), RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
 
         #endregion Tab Interactions
 

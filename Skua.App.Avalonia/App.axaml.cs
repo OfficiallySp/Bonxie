@@ -79,6 +79,13 @@ public partial class App : Application
     public static string HostPipeName { get; private set; } = "BonxieTabHostPipe";
     public static string HostMutexName { get; private set; } = "BonxieTabHostMutex";
 
+    /// <summary>
+    /// The mutex's system name. Off Windows a plain name is only shared within one login session (each terminal or
+    /// launcher can be its own), so a second Bonxie wouldn't find the host; Global\ shares it between all the user's
+    /// sessions (the mutex lives in the user's home directory).
+    /// </summary>
+    private static string HostMutexSystemName => OperatingSystem.IsWindows() ? HostMutexName : @"Global\" + HostMutexName;
+
     public override void OnFrameworkInitializationCompleted()
     {
         Skua.Shared.Avalonia.Controls.Shell.ShellIconTheme.Track(this, "avares://Skua.Shared.Avalonia/Assets/SkuaClientIcon.ico");
@@ -283,7 +290,7 @@ public partial class App : Application
                 string[] clientArgs = filteredArgs.ToArray();
                 string payload = System.Text.Json.JsonSerializer.Serialize(clientArgs);
                 bool createdNew;
-                AppMutex = new System.Threading.Mutex(true, HostMutexName, out createdNew);
+                AppMutex = new System.Threading.Mutex(true, HostMutexSystemName, out createdNew);
 
                 if (!createdNew)
                 {
@@ -317,7 +324,7 @@ public partial class App : Application
                     try
                     {
                         AppMutex?.Dispose();
-                        AppMutex = new System.Threading.Mutex(true, HostMutexName);
+                        AppMutex = new System.Threading.Mutex(true, HostMutexSystemName);
                     }
                     catch { }
                 }
