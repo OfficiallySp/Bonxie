@@ -39,6 +39,17 @@ public static class TabChannel
 
     public static string ClientPipeName(int pid) => $"BonxieTabClient-{pid}";
 
+    // Where .NET puts a pipe's socket off Windows. A client killed with its tab leaves it behind.
+    private static string ClientPipeSocketPath(int pid) => Path.Combine(Path.GetTempPath(), "CoreFxPipe_" + ClientPipeName(pid));
+
+    private static void DeleteClientPipeSocket(int pid)
+    {
+        if (UsesWindowMessages)
+            return;
+        try { File.Delete(ClientPipeSocketPath(pid)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
     private static readonly ConcurrentDictionary<int, Channel<string>> s_outboxes = new();
 
     /// <summary>Posts <paramref name="msg"/> to a client without waiting. Messages to one client keep their order.</summary>
@@ -92,11 +103,13 @@ public static class TabChannel
         }
     }
 
-    /// <summary>Stops queuing messages for a client that has gone.</summary>
+    /// <summary>Stops queuing messages for a client whose tab has closed (the host ends that client).</summary>
     public static void Forget(int pid)
     {
         if (s_outboxes.TryRemove(pid, out Channel<string>? outbox))
             outbox.Writer.TryComplete();
+        if (pid > 0)
+            DeleteClientPipeSocket(pid);
     }
 
     /// <summary>Posts <paramref name="msg"/> to the host this client belongs to.</summary>
@@ -155,6 +168,8 @@ public static class TabChannel
             return;
 
         string name = ClientPipeName(Environment.ProcessId);
+        // A socket left by an earlier process with this pid would keep the server from listening.
+        DeleteClientPipeSocket(Environment.ProcessId);
         _ = Task.Run(async () =>
         {
             while (!token.IsCancellationRequested)

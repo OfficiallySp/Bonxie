@@ -9,7 +9,7 @@ A feature-rich, high-performance rehaul of [auqw/skua](https://github.com/auqw/s
 Bonxie has officially transitioned away from legacy WPF to a ground-up modern desktop architecture:
 
 * 🎨 **Modern Fluent Avalonia Shell:** Completely redesigned from scratch using **Avalonia 11**. Features a sleek, modern dark glassmorphism theme, crisp typography, responsive layout scaling, and smooth animations.
-* ⚡ **Unified Multi-Client Tabbed Host:** Native multi-client workspace (`TabbedHostWindow`) with dynamic scrollable tabs, instant 1-click tab creation, and seamless instance management without overlapping taskbar clutter.
+* ⚡ **Unified Multi-Client Tabbed Host:** Native multi-client workspace (`TabbedHostWindow`) with dynamic scrollable tabs, instant 1-click tab creation, and seamless instance management without overlapping taskbar clutter. Drag a tab out to give it a window of its own, or onto another window's tabs to put it back, like browser tabs; the account keeps running throughout.
 * 🌐 **Global Army Controls:** Integrated top-bar Army Control hub (`Start All`, `Stop All`, `Load Script to All`, `Army Scheduler`, `Jump All to Map/Player`, and synchronized `Lag Killer / Headless / Hide Players` toggles).
 * ⊞ **Adaptive Multi-Instance Grid View:** View and monitor entire armies simultaneously in a clean, auto-fitting single-window grid layout.
 
@@ -22,7 +22,7 @@ The following overview compares the systems and core features between the legacy
 | Feature | Original (Legacy WPF) | Bonxie (Avalonia) |
 | :--- | :--- | :--- |
 | **UI Framework & Design** | Legacy WPF framework. | **Rebuilt in Avalonia UI.** Features sleek Fluent dark styling, smooth animations, and hardware acceleration. |
-| **Account Tabs & Multi-Client** | Required running individual separate windows which clutter the screen and taskbar. | Native `TabbedHostWindow` host with dynamic SWF patching and horizontal tab bar. |
+| **Account Tabs & Multi-Client** | Required running individual separate windows which clutter the screen and taskbar. | Native `TabbedHostWindow` host with dynamic SWF patching and horizontal tab bar, on Windows and Linux. Tabs drag out into their own window and back again (or use the tab menu's *Move to New Window* / *Move to Window*), and Army Control still reaches every account in every window. |
 | **Army Control & Navigation** | Required managing each client independently. | Features a Script Scheduler to broadcast schedules, "Load Script to All", strict login validation, separate Map and Cell input boxes for exact room placement (`teleport across rooms inside your current map without reloading`), exact spawn/pad targeting (`e.g. Boss, Left`), a dedicated `"Jump All to Player..."` option (`instant 1-click /goto commands across all tabs`), and a robust IPC system across tabs. |
 | **Smart Grid View** | Required managing dozens of overlapping individual windows. | Consolidates all active accounts into a clean, clutter-free grid inside a single window to monitor a full army at once. |
 | **Headless Mode** | Full-screen rendering; high resource demand per instance. | Introduced a 1x1 hidden pixel viewport, forcing Flash to bypass geometry/blitting and significantly reducing resource consumption. |
@@ -64,7 +64,7 @@ Pre-built binaries are available on the [**Releases**](https://github.com/retr0g
 
 * **`Bonxie-win-Setup.exe` (Recommended):** 1-click Windows installer. Installs cleanly to `%LocalAppData%\Bonxie`, provisions Desktop and Start Menu shortcuts, and enables seamless background auto-updating.
 * **`Bonxie-win-Portable.zip`:** Zero-install portable package. Extract anywhere and launch `Bonxie.Manager.exe` or `Bonxie.exe`.
-* **`Bonxie-<version>-linux-x64.tar.gz` (Linux, beta):** Extract it and run `./Bonxie` in the `Bonxie` folder. Each launch is one client window for one account (no tabbed host or Manager on Linux yet), with the game inside it like on Windows (through X11; Wayland desktops run it with XWayland). Needs a 64-bit distribution from about 2022 on with ICU (`libicu`), and Vulkan or OpenGL for the game. To build it yourself on Linux: `./package-linux.sh`.
+* **`Bonxie-<version>-linux-x64.tar.gz` (Linux, beta):** Extract it and run `./Bonxie` in the `Bonxie` folder. It opens the same tabbed host as on Windows, one tab per account, with the game inside each tab (through X11; Wayland desktops run it with XWayland); launching Bonxie again adds a tab to the open host. Needs a 64-bit distribution from about 2022 on with ICU (`libicu`), and Vulkan or OpenGL for the game. To build it yourself on Linux: `./package-linux.sh`.
 
 ---
 
